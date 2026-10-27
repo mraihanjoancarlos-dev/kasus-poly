@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kasuspoly — Monopoli Satire Indonesia</title>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Poppins:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<!-- Jika frontend di Vercel & backend di tempat lain, isi: <script>window.SERVER_URL='https://backend-kamu.onrender.com'</script> sebelum script io() & ganti tag socket.io.js ke CDN -->
+<style>
+*{box-sizing:border-box;margin:0}[hidden]{display:none!important}
+body{font-family:'Poppins',sans-serif;background:radial-gradient(circle at 30% 20%,#1b2a5e,#0a0f24 70%);color:#fff;overflow:hidden;height:100vh}
+canvas{position:fixed;inset:0;touch-action:none}
+.glass{background:rgba(12,18,40,.74);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:14px;box-shadow:0 10px 30px #0007}
+#lobby{position:fixed;inset:0;margin:auto;width:min(92vw,420px);height:fit-content;display:flex;flex-direction:column;gap:12px;text-align:center;padding:28px}
+h1{font:44px 'Bungee';line-height:1;color:#fff;text-shadow:0 4px 0 #d32f2f}h1 span{color:#ffd740}
+#lobby p{opacity:.75;font-size:13px}
+input{font:700 16px 'Poppins';padding:12px 14px;border-radius:12px;border:2px solid #2c3a72;background:#0d1530;color:#fff;text-align:center;outline:0}input:focus{border-color:#ffd740}
+.btn{font:700 15px 'Poppins';border:0;border-radius:14px;padding:12px 20px;color:#fff;cursor:pointer;background:linear-gradient(135deg,#ff416c,#ff4b2b);box-shadow:0 6px 0 #9b1c2e,0 12px 20px #0006;transition:transform .12s,box-shadow .12s}
+.btn:hover{transform:translateY(-2px)}.btn:active{transform:translateY(5px);box-shadow:0 1px 0 #9b1c2e}
+.btn.g{background:linear-gradient(135deg,#11998e,#38ef7d);box-shadow:0 6px 0 #0b6b5f,0 12px 20px #0006}
+.btn.b{background:linear-gradient(135deg,#2193b0,#6dd5ed);box-shadow:0 6px 0 #14677e,0 12px 20px #0006;color:#06222c}
+.btn.y{background:linear-gradient(135deg,#f7971e,#ffd200);box-shadow:0 6px 0 #a86a00,0 12px 20px #0006;color:#3a2600}
+.btn.sm{font-size:12px;padding:8px 12px;box-shadow:0 4px 0 #14677e}
+.btn:disabled{filter:grayscale(1);opacity:.45;pointer-events:none}
+#hud{position:fixed;left:12px;top:12px;width:250px;display:flex;flex-direction:column;gap:6px}
+.pl{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:#ffffff12;font-size:13px}
+.pl.on{background:#ffd74033;outline:2px solid #ffd740}.pl i{width:14px;height:14px;border-radius:50%}.pl b{margin-left:auto;color:#7dffb0}
+#lg{position:fixed;left:12px;bottom:12px;width:300px;max-width:45vw;font-size:12px;line-height:1.5;max-height:190px;overflow:hidden}
+#top{position:fixed;top:12px;left:50%;transform:translateX(-50%);font-weight:700;padding:10px 20px;text-align:center}
+#bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:12px;width:min(96vw,720px)}
+#bar>div{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+#dice{position:fixed;inset:0;margin:auto;height:fit-content;text-align:center;font:64px 'Bungee';pointer-events:none;opacity:0;text-shadow:0 6px 0 #d32f2f}
+#dice.show{animation:roll 1.6s}@keyframes roll{0%{opacity:1;transform:rotate(-20deg) scale(.3)}25%{transform:rotate(12deg) scale(1.2)}50%,80%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translateY(-80px)}}
+#toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#d32f2f;padding:10px 18px;border-radius:12px;font-weight:700;opacity:0;transition:.3s}
+@media(max-width:700px){#hud{width:170px}.pl{font-size:11px;padding:6px}#lg{display:none}}
+</style></head><body>
+<div id="lobby" class="glass"><h1>KASUS<span>POLY</span></h1><p>Monopoli satire Indonesia · 2–4 pemain online</p>
+<input id="nm" placeholder="Nama kamu" maxlength="12"><button class="btn" id="cr">Buat Ruangan</button>
+<p>— atau masuk dengan kode —</p><input id="cd" placeholder="KODE" maxlength="4"><button class="btn b" id="jn">Gabung Ruangan</button></div>
+<div id="game" hidden><div id="hud" class="glass"></div><div id="lg" class="glass"></div><div id="top" class="glass"></div><div id="bar"></div><div id="dice"></div></div>
+<div id="toast"></div>
+<script>
+const S=io(window.SERVER_URL||undefined),$=i=>document.getElementById(i),fm=n=>'Rp'+n+'jt';
+let B=[],G={},st=null,sc,cam,ren,pawns={},bl={},ang=0,el=.85,rad=25,ready=0;
+const OFF=[[-.5,.5],[.5,.5],[-.5,-.5],[.5,-.5]];
+const XY=i=>{let x,z;if(i<=10){x=10-i;z=10}else if(i<=20){x=0;z=20-i}else if(i<=30){x=i-20;z=0}else{x=10;z=i-30}return[(x-5)*1.7,(z-5)*1.7]};
+const M=(c,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.7},o));
+const add=(g,m,x,y,z)=>{const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.castShadow=o.receiveShadow=true;sc.add(o);return o};
+function toast(m){const t=$('toast');t.textContent=m;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,2200)}
+S.on('err',toast);
+S.on('board',d=>{B=d.B;G=d.G;if(!ready)init3d()});
+S.on('state',s=>{st=s;$('lobby').hidden=1;$('game').hidden=0;ui();sync()});
+S.on('dice',d=>{const e=$('dice');e.textContent='🎲 '+d[0]+' + '+d[1];e.className='';void e.offsetWidth;e.className='show'});
+$('cr').onclick=()=>S.emit('create',$('nm').value||'Pemain');
+$('jn').onclick=()=>S.emit('join',$('cd').value,$('nm').value||'Pemain');
+function ui(){const me=st.pl.find(p=>p.id===S.id),c=st.pl[st.turn],lobby=st.ph==='lobby',mine=!lobby&&c.id===S.id;
+ $('hud').innerHTML=st.pl.map(p=>`<div class="pl ${!lobby&&p===c?'on':''}"><i style="background:${p.c}"></i>${p.name}${p.out?' ☠️':p.j?' ⛓️':''}<b>${fm(p.m)}</b></div>`).join('');
+ $('lg').innerHTML=st.log.slice(-8).map(l=>`<div>${l}</div>`).join('');
+ $('top').innerHTML=lobby?`Kode ruangan: <span style="font:22px Bungee;color:#ffd740">${st.code}</span> · ${st.pl.length}/4 pemain`:st.ph==='over'?`🏆 ${st.win} berhasil bertahan!`:`Giliran ${c.name}`;
+ let h='';
+ if(lobby)h=S.id===st.host?`<button class="btn g" onclick="S.emit('start')" ${st.pl.length<2?'disabled':''}>▶ Mulai Game</button>`:'<div class="glass">Menunggu host memulai…</div>';
+ else if(st.ph==='over')h='<button class="btn y" onclick="location.reload()">Main Lagi</button>';
+ else if(!mine)h=`<div class="glass">Menunggu ${c.name}…</div>`;
+ else{let bs='';
+  B.forEach((t,i)=>{if(t.t!=='p'||st.own[i]!==S.id||(st.ph!=='roll'&&st.ph!=='end'))return;const L=st.lv[i]||0,g=B.map((u,k)=>u.g===t.g?k:-1).filter(k=>k>=0);
+   if(g.every(k=>st.own[k]===S.id)&&L<5&&!g.some(k=>(st.lv[k]||0)<L)&&me.m>=Math.round(t.p/2))bs+=`<button class="btn b sm" onclick="S.emit('build',${i})">🏗 ${t.n}: ${L<4?'Rumah':'Gedung'} (${fm(Math.round(t.p/2))})</button>`});
+  h=(bs?`<div>${bs}</div>`:'')+'<div>'+`<button class="btn" ${st.ph==='roll'?'':'disabled'} onclick="S.emit('roll')">🎲 Lempar Dadu</button>`
+   +(st.ph==='buy'?`<button class="btn g" onclick="S.emit('buy')">🏷️ Beli ${fm(B[me.pos].p)}</button><button class="btn y" onclick="S.emit('pass')">Lewati</button>`:'')
+   +(st.ph==='end'?`<button class="btn b" onclick="S.emit('end')">✅ Akhiri Giliran</button>`:'')+'</div>'}
+ $('bar').innerHTML=lobby||!mine||st.ph==='over'?`<div>${h}</div>`:h}
+function tex(t){const c=document.createElement('canvas');c.width=c.height=160;const x=c.getContext('2d');x.fillStyle='#f6f1e3';x.fillRect(0,0,160,160);x.textAlign='center';
+ if(t.g){x.fillStyle=G[t.g];x.fillRect(0,0,160,42)}x.fillStyle='#222';
+ const ic={s:'💰',c:'🎴',k:'⚠️',x:'🧾',j:'⛓️',g:'🚨',f:'✈️'}[t.t]||(/Listrik/.test(t.n)?'⚡':/PDAM/.test(t.n)?'💧':t.t==='r'?'🚆':'');
+ const L=[];let l='';t.n.split(' ').forEach(w=>{if((l+' '+w).trim().length>11&&l){L.push(l);l=w}else l=(l+' '+w).trim()});L.push(l);
+ if(t.t==='p'){x.font='bold 21px sans-serif';L.forEach((s,k)=>x.fillText(s,80,76+k*23));x.fillText(fm(t.p),80,148)}
+ else{x.font='48px serif';x.fillText(ic,80,72);x.font='bold 19px sans-serif';L.forEach((s,k)=>x.fillText(s,80,104+k*21));if(t.p)x.fillText(fm(t.p),80,152)}
+ x.strokeStyle='#999';x.lineWidth=3;x.strokeRect(2,2,156,156);return new THREE.CanvasTexture(c)}
+let WT;
+function tower(h,col){const g=new THREE.Group(),b=new THREE.Mesh(new THREE.BoxGeometry(.9,h,.9),new THREE.MeshStandardMaterial({map:WT})),r=new THREE.Mesh(new THREE.BoxGeometry(1,.12,1),M(col)),a=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,.5),r.material);
+ b.position.y=h/2;r.position.y=h+.06;a.position.y=h+.35;g.add(b,r,a);g.traverse(o=>o.castShadow=true);return g}
+function house(col){const g=new THREE.Group(),w=new THREE.Mesh(new THREE.BoxGeometry(.5,.4,.5),M('#f5ebd0')),r=new THREE.Mesh(new THREE.ConeGeometry(.45,.35,4),M(col));
+ w.position.y=.2;r.position.y=.57;r.rotation.y=Math.PI/4;g.add(w,r);g.traverse(o=>o.castShadow=true);return g}
+function mkPawn(c){const g=new THREE.Group(),m=M(c),b=new THREE.Mesh(new THREE.ConeGeometry(.25,.6,20),m),h=new THREE.Mesh(new THREE.SphereGeometry(.17,20,20),m);
+ b.position.y=.3;h.position.y=.7;g.add(b,h);g.traverse(o=>o.castShadow=true);return g}
+function init3d(){ready=1;
+ const c=document.createElement('canvas');c.width=64;c.height=128;const x=c.getContext('2d');x.fillStyle='#37474f';x.fillRect(0,0,64,128);
+ for(let a=0;a<4;a++)for(let b=0;b<8;b++){x.fillStyle=Math.random()<.7?'#ffe082':'#546e7a';x.fillRect(6+a*15,6+b*15,9,9)}WT=new THREE.CanvasTexture(c);
+ ren=new THREE.WebGLRenderer({antialias:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));ren.setSize(innerWidth,innerHeight);ren.shadowMap.enabled=true;document.body.prepend(ren.domElement);
+ sc=new THREE.Scene();sc.background=new THREE.Color('#7fd3f7');sc.fog=new THREE.Fog('#7fd3f7',40,85);
+ cam=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.1,200);
+ sc.add(new THREE.HemisphereLight('#ffffff','#4a8a5a',.85));
+ const dl=new THREE.DirectionalLight('#fff4d6',.9);dl.position.set(10,22,9);dl.castShadow=true;Object.assign(dl.shadow.camera,{left:-18,right:18,top:18,bottom:-18});dl.shadow.mapSize.set(2048,2048);sc.add(dl);
+ add(new THREE.CylinderGeometry(60,60,1,48),M('#1e90c8',{roughness:.3}),0,-1.5,0);
+ add(new THREE.CylinderGeometry(15.6,16.4,.6,64),M('#f1d9a0'),0,-.9,0);
+ add(new THREE.CylinderGeometry(14.5,15.5,1.2,64),M('#4caf50'),0,-.6,0);
+ B.forEach((t,i)=>{const[px,pz]=XY(i),m=new THREE.Mesh(new THREE.BoxGeometry(1.64,.3,1.64),[0,1,2,3,4,5].map(k=>k==2?new THREE.MeshStandardMaterial({map:tex(t)}):M('#d9d2c0')));
+  m.position.set(px,.15,pz);m.rotation.y=i<10?0:i<20?-Math.PI/2:i<30?Math.PI:Math.PI/2;m.receiveShadow=true;sc.add(m)});
+ add(new THREE.BoxGeometry(2.4,.5,2.4),M('#e8e2d0'),0,.25,0);add(new THREE.CylinderGeometry(.18,.34,5.5,16),M('#fafafa'),0,3,0);add(new THREE.ConeGeometry(.3,.9,16),M('#ffc107',{metalness:.6,roughness:.3}),0,6.2,0);
+ for(let k=0;k<30;k++){const a=Math.random()*6.28,d=3.3+Math.random()*3.2,px=Math.cos(a)*d,pz=Math.sin(a)*d;
+  if(k<7){const t=tower(1+Math.random()*2.2,['#e53935','#1e88e5','#fdd835','#43a047'][k%4]);t.position.set(px,.3,pz);sc.add(t)}
+  else{add(new THREE.CylinderGeometry(.06,.08,.5),M('#6d4c41'),px,.5,pz);add(new THREE.ConeGeometry(.4,1,8),M('#2e7d32'),px,1.2,pz)}}
+ addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight)});
+ let dr=null;addEventListener('pointerdown',e=>{if(e.target.tagName==='CANVAS')dr=[e.clientX,e.clientY]});addEventListener('pointerup',()=>dr=null);
+ addEventListener('pointermove',e=>{if(!dr)return;ang-=(e.clientX-dr[0])*.006;el=Math.max(.3,Math.min(1.45,el+(e.clientY-dr[1])*.004));dr=[e.clientX,e.clientY]});
+ addEventListener('wheel',e=>rad=Math.max(12,Math.min(38,rad+e.deltaY*.02)));
+ requestAnimationFrame(loop)}
+function sync(){if(!sc)return;
+ B.forEach((t,i)=>{if(t.t!=='p'&&t.t!=='r')return;const o=st.own[i],L=st.lv[i]||0,key=o?o+':'+L:'';if(bl[i]&&bl[i].key===key)return;
+  if(bl[i]){sc.remove(bl[i]);delete bl[i]}if(!o)return;
+  const col=st.pl.find(p=>p.id===o).c,g=new THREE.Group(),[px,pz]=XY(i);g.key=key;
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.8),M('#ddd')),fg=new THREE.Mesh(new THREE.BoxGeometry(.3,.2,.02),M(col));pole.position.set(-.65,.7,.65);fg.position.set(-.5,.95,.65);g.add(pole,fg);
+  if(L>=5){const tw=tower(1.8,col);tw.position.y=.3;g.add(tw)}else for(let k=0;k<L;k++){const h=house(col);h.position.set(k%2?.3:-.3,.3,k>1?.3:-.3);g.add(h)}
+  g.position.set(px,0,pz);sc.add(g);bl[i]=g});
+ st.pl.forEach((p,k)=>{let w=pawns[p.id];if(!w){w=pawns[p.id]=mkPawn(p.c);w.i=0;w.q=[];const[px,pz]=XY(0);w.position.set(px+OFF[k][0],.3,pz+OFF[k][1]);sc.add(w)}
+  w.k=k;w.visible=!p.out;const d=(p.pos-w.i+40)%40;
+  if(d>12){w.q=[p.pos];w.i=p.pos}else while(w.i!==p.pos){w.i=(w.i+1)%40;w.q.push(w.i)}})}
+function loop(t){requestAnimationFrame(loop);
+ Object.values(pawns).forEach(w=>{const f=XY(w.q.length?w.q[0]:w.i),o=OFF[w.k||0],dx=f[0]+o[0]-w.position.x,dz=f[1]+o[1]-w.position.z,d=Math.hypot(dx,dz);
+  if(d<.1){if(w.q.length)w.q.shift()}else{const s=Math.min(d,.13);w.position.x+=dx/d*s;w.position.z+=dz/d*s}
+  w.position.y=.3+(w.q.length?Math.abs(Math.sin(t/90))*.45:0)});
+ cam.position.set(Math.sin(ang)*Math.cos(el)*rad,Math.sin(el)*rad,Math.cos(ang)*Math.cos(el)*rad);cam.lookAt(0,0,0);ren.render(sc,cam)}
+</script></body></html>
